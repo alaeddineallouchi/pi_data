@@ -1,0 +1,146 @@
+{\rtf1\ansi\ansicpg1252\deff0\nouicompat\deflang1036{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil Calibri;}{\f2\fnil\fcharset1 Cambria Math;}{\f3\fnil\fcharset0 Cambria Math;}}
+{\colortbl ;\red75\green172\blue198;\red0\green0\blue0;\red255\green0\blue0;}
+{\*\generator Riched20 10.0.22621}{\*\mmathPr\mmathFont2\mwrapIndent1440 }\viewkind4\uc1 
+\pard\sa200\sl276\slmult1\f0\fs22\lang12 Buisiness Understanding \par
+DSO : Develop a machine learning model to predict throughput (in Mbps) based on temporal, spatial, and network signal data\par
+DSO : classification of the predicted throughput into high , medium and low\par
+\par
+\par
+\par
+\par
+Data Preparation\par
+Objective: Clean, transform, and engineer data to create a dataset suitable for modeling.\par
+\par
+\cf1 Downsampling\cf0 : Reduce dataset size by selecting every second row.\par
+What It Does:\par
+\par
+Selects every second row of the dataset, halving its size.\par
+Resets the index to maintain a clean, sequential index.\par
+Purpose:\par
+\par
+Reduce computational load for preprocessing and model training by decreasing the dataset size while preserving general trends.\par
+\par
+\cf1 2. Cleaning LTE/NR Columns\par
+\cf0 What It Does:\par
+\par
+Identifies columns starting with lte_ (e.g., lte_rsrp, lte_rssnr) and nr_ (e.g., nr_ssRsrp, nr_ssSinr).\par
+Replaces missing values (NaN) in these columns with the column\rquote s median.\par
+Purpose:\par
+\par
+Ensure complete data for LTE and NR signal metrics, which are critical inputs to the LSTM model.\par
+Justification:\par
+\par
+Importance of LTE/NR Metrics: These columns likely represent signal strength (e.g., lte_rsrp, Reference Signal Received Power in dBm) and quality (e.g., nr_ssSinr, Signal-to-Interference-plus-Noise Ratio in dB), which directly influence throughput. Missing values would disrupt model training, as LSTMs require complete inputs.\par
+Median Imputation:\par
+Robustness to Outliers: Signal metrics can have outliers (e.g., very low lte_rsrp in rural areas or high nr_ssSinr in ideal conditions). The median is less sensitive to these extremes than the mean, ensuring imputed values are realistic (e.g., typical signal strengths like -97.5 dBm for lte_rsrp).\par
+Preserving Distribution: The median represents the central 50% of the data, maintaining the typical range of signal strengths, which is crucial for skewed distributions common in signal data.\par
+Simplicity: Median imputation is computationally efficient and doesn\rquote t require assumptions about data ordering or relationships with other features.\par
+\cf1 3. Outlier Removal\par
+\cf0 Purpose:\par
+\par
+Eliminate unrealistic or extreme throughput values that could skew model training.\par
+Justification:\par
+\par
+Throughput Sensitivity: As the target variable, Throughput must be reliable. Outliers (e.g., negative throughputs or unrealistically high values like 10,000 Mbps) could distort the LSTM\rquote s learning, leading to poor predictions.\par
+\cf1 4. Categorical Encoding\par
+\cf0 What It Does:\par
+\par
+Encodes categorical columns (nrStatus, trajectory_direction, mobility_mode) using LabelEncoder, converting categories to integers.\par
+Creates mobility_mode_encoded as a copy of mobility_mode or 0 if missing.\par
+Encodes tower_id into tower_id_encoded using LabelEncoder.\par
+Purpose:\par
+\par
+Convert categorical variables into numerical format for LSTM input, as neural networks require numerical data.\par
+\cf1 5. Spatial Clustering\par
+\cf0 What It Does:\par
+\par
+Extracts non-missing latitude and longitude coordinates.\par
+Applies KMeans clustering with 5 clusters to group coordinates into zones.\par
+Assigns cluster labels (0\f1\endash 4) to rows with valid coordinates.\par
+Fills missing zone_cluster values with 0.\par
+Purpose:\par
+\par
+Create a zone_cluster feature to capture spatial patterns (e.g., urban vs. rural areas) that influence throughput.\par
+Justification:\par
+\par
+Spatial Influence: Throughput varies by location due to infrastructure density (e.g., more towers in urban areas) and environmental factors (e.g., interference in dense areas). Clustering groups similar locations, enabling the model to learn zone-specific patterns.\par
+\cf1 6. Temporal Feature Extraction\par
+\cf0 What It Does:\par
+\par
+Converts timestamp to datetime format.\par
+Extracts:\par
+hour: Hour of the day (0\endash 23).\par
+day_of_week: Day of the week (0\endash 6, Monday\endash Sunday).\par
+time_slot: Redundant hourly slot (equals hour in this implementation).\par
+is_peak_hour: Binary flag (1 for 8\endash 10 AM or 5\endash 7 PM on weekdays, 0 otherwise).\par
+Fills NaT values with 0 and sets all features to 0 if timestamp is missing.\par
+Purpose:\par
+\par
+Capture temporal patterns (e.g., peak hours, weekday vs. weekend) that influence throughput.\par
+Justification:\par
+\par
+Temporal Influence: Throughput varies by time due to user activity (e.g., congestion during 8\endash 10 AM). These features provide explicit temporal context for the LSTM.\par
+\cf1\f0\lang1036 feature engineering\par
+\cf0 throughput_delta: Difference in throughput between consecutive rows.\par
+throughput_rolling_mean: 5-row rolling mean of throughput.\par
+throughput_rolling_std: 5-row rolling standard deviation of throughput.\par
+throughput_acceleration: Second-order difference of throughput.\par
+is_handover: Flags tower changes (1 if tower_id differs from previous row).\par
+is_nr_dominant: Binary flag (1 if NR signal is stronger than LTE).\par
+signal_ratio: Ratio of nr_ssSinr to lte_rsrp.\par
+throughput_lag1: Previous throughput value.\par
+distance_to_tower: Haversine distance between device and tower coordinates.\par
+\cf1 8. Normalization/Scaling\par
+\cf0 Scales contextual features (context_cols) and LTE/NR features using RobustScaler.\par
+Scales the target (throughput_rolling_mean) using MinMaxScaler to [0, 1].\par
+Purpose:\par
+\par
+Normalize feature and target ranges to improve LSTM training stability and performance.\par
+\cf1 9. Sequence Creation\par
+\cf2 we have created a function to create sequences of length 10 for LSTM input.\par
+Purpose:\par
+\par
+Structure data into sequences for LSTM modeling, combining sequential (time-series) and contextual (static) features to predict future throughput.\par
+\cf3 Modeling Phase Overview\par
+\par
+Model Choice\cf2 : Selects a hybrid LSTM model, which processes sequential data (time-series of signal metrics and throughput changes) and concatenates contextual features for prediction.\par
+Custom Loss: Implements CustomMSE, which applies a higher weight (2.0) to errors for throughputs below 100 Mbps, emphasizing low-throughput accuracy.\par
+Dependencies: Uses TensorFlow/Keras for deep learning, with AdamW optimizer, l2 regularization, and callbacks (EarlyStopping, ReduceLROnPlateau).\par
+\cf1 Purpose\cf2 :\par
+\par
+Build a model capable of capturing temporal dependencies in network data (e.g., signal strength changes over time) and incorporating contextual factors (e.g., time of day, location) to predict throughput.\par
+strength fluctuations, throughput trends). LSTMs are designed for sequential data, modeling dependencies across time steps (e.g., 10-step sequences in the code).\par
+Sequential Inputs: Features like throughput_delta, lte_rsrp, and nr_ssSinr vary over time, making LSTMs suitable for capturing their impact on throughput.\par
+Contextual Integration: The hybrid architecture concatenates static features (e.g., hour, zone_cluster) with LSTM outputs, allowing the model to combine temporal and non-temporal information.\par
+\cf1 Why Deep Learning?\par
+\cf2 Complex Patterns: The dataset includes diverse features (temporal, spatial, network-related), and deep learning models like LSTMs can learn complex, non-linear relationships.\par
+Scalability: LSTMs can handle large, high-dimensional datasets typical of network logs\par
+\cf1 Build Model\par
+\cf3 Training\cf2 :\par
+Trains for up to 30 epochs with a batch size of 128.\par
+Uses 20% of training data for validation (validation_split=0.2).\par
+Applies callbacks:\par
+EarlyStopping: Stops training if validation loss doesn\rquote t improve for 5 epochs, restoring best weights.\par
+ReduceLROnPlateau: Reduces learning rate by half if validation loss plateaus for 3 epochs\par
+\cf3 Purpose:\par
+\cf2\par
+Construct and train a model that learns to predict throughput from sequential and contextual features, optimizing for low-throughput accuracy.\par
+\cf3 Architecture\cf2 :\par
+LSTM Layer (64 units): Balances capacity to learn temporal patterns with computational efficiency. Too few units (e.g., 16) might underfit; too many (e.g., 128) risk overfitting.\par
+BatchNormalization: Stabilizes training by normalizing activations, reducing sensitivity to initial weights or data scale.\par
+Concatenate: Combines sequential (LSTM output) and contextual features, allowing the model to integrate time-series trends (e.g., signal changes) with static context (e.g., peak hours).\par
+Dense Layers: The 32-unit layer learns complex interactions, while the final 1-unit layer outputs throughput. relu ensures non-negative predictions, aligning with throughput\rquote s physical constraints (\f2\u8805?\f0  0 Mbps).\par
+\cf3 Regularization:\par
+\cf2 l2(0.001) penalizes large weights, preventing overfitting to noisy network data.\par
+Dropout(0.4) randomly drops 40% of connections, enhancing generalization.\par
+CustomMSE:\par
+Doubles the loss for throughputs below 100 Mbps, ensuring the model prioritizes accuracy in critical low-performance scenarios (e.g., poor user experience).\par
+The approximation y_true_mbps = 100.0 * y_true aligns with the MinMaxScaler used in data preparation, assuming a maximum throughput near 100 Mbps.\par
+\cf3 Optimizer (AdamW):\par
+\cf2 AdamW combines adaptive learning rates (Adam) with weight decay, improving generalization compared to standard Adam.\par
+learning_rate=0.001 is a standard starting point for LSTMs, balancing convergence speed and stability.\par
+clipnorm=1.0 prevents exploding gradients, common in RNNs.\par
+\cf3 Metrics\f3 :\f0\par
+\cf2 mae\f3  \f0 complements\f3  \f0 CustomMSE\f3 , \f0 providing\f3  \f0 an\f3  \f0 interpretable\f3  \f0 measure\f3  \f0 of\f3  \f0 average\f3  \f0 error\f3  \f0 in\f3  \f0 the\f3  \f0 scaled\f3  \f0 throughput\f3  \f0 space\f3 .\f0\lang1036\par
+}
+ 
